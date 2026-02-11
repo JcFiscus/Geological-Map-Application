@@ -45,6 +45,40 @@ python -m http.server 4173
 
 Then open: `http://localhost:4173`
 
+## Test on your iPhone
+
+Yes—this prototype can be tested on an iPhone.
+
+### Option 1: Test from your local machine over Wi-Fi
+
+1. Start a local server:
+
+   ```bash
+   python -m http.server 4173
+   ```
+
+2. Find your computer's local IP address on the same Wi-Fi network (example: `192.168.1.20`).
+3. On your iPhone (connected to the same Wi-Fi), open Safari to:
+
+   ```
+   http://<your-local-ip>:4173
+   ```
+
+4. Allow location/orientation permissions when prompted.
+
+### Option 2: Test from GitHub using GitHub Pages
+
+Yes—GitHub can host this app since it is static HTML/CSS/JS.
+
+1. Push this repository to GitHub.
+2. In GitHub: **Settings → Pages**.
+3. Set **Source** to deploy from your main branch (root folder).
+4. Open the generated `https://...github.io/...` URL on your iPhone.
+
+### iPhone/Safari note for compass heading
+
+On iOS, heading/orientation sensors may require an explicit permission interaction in Safari. If heading is unavailable, the app's manual heading slider can still be used for prototype testing.
+
 ## Project structure
 
 - `index.html` – app layout and controls.
