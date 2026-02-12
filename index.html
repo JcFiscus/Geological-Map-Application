@@ -16,8 +16,7 @@
           <button id="menuBtn" class="menu-btn" aria-expanded="false" aria-controls="settingsPanel">☰</button>
           <div class="status-pill"><span>Location</span><strong id="locationStatus">No fix</strong></div>
           <div class="status-pill"><span>Heading</span><strong id="headingStatus">Manual</strong></div>
-          <div class="status-pill"><span>Pitch</span><strong id="tiltStatus">35°</strong></div>
-          <div class="status-pill"><span>Observer</span><strong id="elevationStatus">2 m AGL</strong></div>
+          <div class="status-pill"><span>Mode</span><strong id="modeStatus">3D subsurface</strong></div>
         </div>
 
         <aside id="settingsPanel" class="settings-panel" hidden>
@@ -25,7 +24,10 @@
             <h1>GeoScope AR</h1>
             <button id="closeMenuBtn" class="icon-btn" aria-label="Close menu">✕</button>
           </div>
-          <p>Use live sensors or tune inputs manually to align projected strata with terrain in front of your camera.</p>
+          <p>
+            3D geological volume is projected below the terrain estimate so it remains available indoors,
+            underground parking, and line-of-sight constrained views.
+          </p>
 
           <div class="control-row">
             <button id="startArBtn" class="button">Start AR view</button>
@@ -39,7 +41,7 @@
           </label>
 
           <label class="control-field" for="distanceInput">
-            <span>Look-ahead distance (km)</span>
+            <span>Subsurface look-ahead distance (km)</span>
             <input id="distanceInput" type="range" min="0.5" max="12" step="0.1" value="2" />
           </label>
 

@@ -11,14 +11,13 @@ const state = {
 };
 
 const geologicPalette = [
-  { name: 'Quaternary alluvium', age: '0-2.6 Ma', color: '#f3d27a' },
-  { name: 'Neogene sediments', age: '2.6-23 Ma', color: '#e9b966' },
-  { name: 'Paleogene mudstone', age: '23-66 Ma', color: '#d18f58' },
-  { name: 'Cretaceous sandstone', age: '66-145 Ma', color: '#b86f4d' },
-  { name: 'Jurassic shale', age: '145-201 Ma', color: '#8d5a49' },
-  { name: 'Triassic siltstone', age: '201-252 Ma', color: '#6d4f54' },
-  { name: 'Permian limestone', age: '252-299 Ma', color: '#4f4a64' },
-  { name: 'Precambrian basement', age: '>541 Ma', color: '#393f65' },
+  { name: 'Urban fill & alluvium', age: '0-2.6 Ma', color: '#f3d27a', porosity: 0.33 },
+  { name: 'Shallow aquifer sands', age: '2.6-10 Ma', color: '#e7bd72', porosity: 0.28 },
+  { name: 'Floodplain silts', age: '10-34 Ma', color: '#cfa070', porosity: 0.22 },
+  { name: 'Deltaic sandstone', age: '34-100 Ma', color: '#b67f61', porosity: 0.18 },
+  { name: 'Marine shale', age: '100-180 Ma', color: '#8f6a6e', porosity: 0.11 },
+  { name: 'Carbonate shelf', age: '180-300 Ma', color: '#6c5b71', porosity: 0.09 },
+  { name: 'Metamorphic basement', age: '>300 Ma', color: '#4f4f73', porosity: 0.03 },
 ];
 
 const el = {
@@ -31,8 +30,7 @@ const el = {
   orientationBtn: document.querySelector('#orientationBtn'),
   locationStatus: document.querySelector('#locationStatus'),
   headingStatus: document.querySelector('#headingStatus'),
-  tiltStatus: document.querySelector('#tiltStatus'),
-  elevationStatus: document.querySelector('#elevationStatus'),
+  modeStatus: document.querySelector('#modeStatus'),
   headingInput: document.querySelector('#headingInput'),
   distanceInput: document.querySelector('#distanceInput'),
   tiltInput: document.querySelector('#tiltInput'),
@@ -49,21 +47,19 @@ const clampHeading = (value) => ((value % 360) + 360) % 360;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const createDirectionalStack = () => {
-  const headingFactor = Math.sin((state.heading * Math.PI) / 180);
   const distanceFactor = Math.min(state.distanceKm / 12, 1);
-  const downwardPitchDeg = clamp(state.tiltDeg, -25, 85);
-  const pitchFactor = clamp((downwardPitchDeg + 20) / 105, 0, 1);
+  const pitchFactor = clamp((clamp(state.tiltDeg, -20, 80) + 20) / 100, 0, 1);
 
   const weightedLayers = geologicPalette.map((layer, index) => {
-    const base = 72 + index * 34;
-    const headingWave = Math.sin((state.heading + index * 36) * 0.06) * (16 + index * 2.2);
-    const distanceDepth = distanceFactor * (28 + index * 16);
-    const pitchDepth = (1 - pitchFactor) * (52 + index * 5);
+    const base = 80 + index * 42;
+    const headingPulse = Math.sin((state.heading + index * 31) * 0.05) * (20 + index * 2.5);
+    const distanceDepth = distanceFactor * (34 + index * 18);
+    const pitchDepth = (1 - pitchFactor) * (44 + index * 6.5);
 
     return {
       ...layer,
-      thicknessM: Math.max(26, base + headingWave + distanceDepth + pitchDepth),
-      confidence: clamp(0.6 + Math.abs(headingFactor) * 0.22 - index * 0.02, 0.48, 0.97),
+      thicknessM: Math.max(34, base + headingPulse + distanceDepth + pitchDepth),
+      confidence: clamp(0.58 + distanceFactor * 0.24 - index * 0.03, 0.42, 0.96),
     };
   });
 
@@ -72,13 +68,14 @@ const createDirectionalStack = () => {
     const topDepthM = runningDepth;
     const bottomDepthM = runningDepth + layer.thicknessM;
     runningDepth = bottomDepthM;
+
     return {
       ...layer,
       index,
       topDepthM,
       bottomDepthM,
       midpointDepthM: (topDepthM + bottomDepthM) / 2,
-      distanceFromUserM: state.distanceKm * 1000 + topDepthM * 0.5,
+      distanceFromUserM: state.distanceKm * 1000 + topDepthM * 0.65,
     };
   });
 };
@@ -92,29 +89,24 @@ const fitCanvas = () => {
 };
 
 const depthToScreenY = (depthM, horizonY, height, maxDepth) => {
-  const depthFraction = 1 - Math.exp((-depthM / maxDepth) * 2.35);
-  return clamp(horizonY + depthFraction * (height - horizonY), horizonY + 6, height - 4);
+  const depthFraction = 1 - Math.exp((-depthM / maxDepth) * 2.1);
+  return clamp(horizonY + depthFraction * (height - horizonY), horizonY + 8, height - 4);
 };
 
 const calculateViewModel = (layers, width, height) => {
   const maxDepth = layers[layers.length - 1].bottomDepthM;
   const observerHeightM = Math.max(1, state.observerHeightM);
-  const pitchDownDeg = state.tiltDeg;
 
   const geometricHorizonM = 3570 * Math.sqrt(observerHeightM);
-  const lookAheadM = state.distanceKm * 1000;
-  const visibleDistanceM = Math.max(500, Math.min(lookAheadM, geometricHorizonM * 0.96));
+  const requestedLookAheadM = state.distanceKm * 1000;
+  const indoorMinimumM = 900;
+  const visibleDistanceM = Math.max(indoorMinimumM, Math.min(requestedLookAheadM, geometricHorizonM * 1.15));
 
-  const horizonOffset = clamp((-pitchDownDeg / 55) * (height * 0.36), -height * 0.32, height * 0.42);
-  const horizonY = clamp(height * 0.44 + horizonOffset, height * 0.12, height * 0.82);
-  const groundStartY = clamp(horizonY + 2, 0, height - 10);
+  const horizonOffset = clamp((-state.tiltDeg / 55) * (height * 0.33), -height * 0.28, height * 0.38);
+  const horizonY = clamp(height * 0.41 + horizonOffset, height * 0.15, height * 0.78);
+  const groundStartY = clamp(horizonY + 5, 0, height - 12);
 
-  const verticalFovDeg = 62;
-  const visibleGroundDepthM = Math.max(
-    130,
-    observerHeightM + Math.tan(((verticalFovDeg * 0.5 + Math.max(pitchDownDeg, 0)) * Math.PI) / 180) * visibleDistanceM,
-  );
-  const depthScaleMax = Math.max(visibleGroundDepthM, maxDepth * 0.3);
+  const depthScaleMax = Math.max(maxDepth, observerHeightM + visibleDistanceM * 0.26);
 
   return {
     horizonY,
@@ -122,7 +114,6 @@ const calculateViewModel = (layers, width, height) => {
     maxDepth,
     visibleDistanceM,
     depthScaleMax,
-    pitchDownDeg,
   };
 };
 
@@ -132,9 +123,9 @@ const createGroundMask = (width, height, horizonY, headingDeg) => {
 
   ctx.beginPath();
   ctx.moveTo(0, horizonY + Math.sin(wave) * undulation);
-  for (let x = 0; x <= width; x += Math.max(16, width / 28)) {
+  for (let x = 0; x <= width; x += Math.max(16, width / 30)) {
     const wobble = Math.sin((x / width) * Math.PI * 2.8 + wave) * undulation;
-    const contour = Math.cos((x / width) * Math.PI * 4.6 + wave * 1.3) * (undulation * 0.38);
+    const contour = Math.cos((x / width) * Math.PI * 4.1 + wave * 1.2) * (undulation * 0.42);
     ctx.lineTo(x, horizonY + wobble + contour);
   }
   ctx.lineTo(width, height);
@@ -142,46 +133,50 @@ const createGroundMask = (width, height, horizonY, headingDeg) => {
   ctx.closePath();
 };
 
-const drawLayerBand = (layer, width, topY, bottomY, waveOffset) => {
-  const lift = 8 + layer.index * 1.7;
+const drawVolumetricSlice = (layer, width, topY, bottomY, waveOffset, perspectiveSkew) => {
+  const lift = 7 + layer.index * 1.8;
+  const sideDepthPx = 12 + layer.index * 1.3;
   const xQuarter = width * 0.25;
   const xMid = width * 0.5;
   const xThreeQuarter = width * 0.75;
 
+  const topShift = Math.sin(waveOffset) * lift;
+  const topShiftMid = Math.sin(waveOffset + 2.1) * lift;
+  const topShiftRight = Math.sin(waveOffset + 4.4) * lift;
+
   ctx.beginPath();
-  ctx.moveTo(0, topY + Math.sin(waveOffset) * lift);
-  ctx.quadraticCurveTo(
-    xQuarter,
-    topY + Math.sin(waveOffset + 1.2) * lift,
-    xMid,
-    topY + Math.sin(waveOffset + 2.4) * lift,
-  );
+  ctx.moveTo(0, topY + topShift);
+  ctx.quadraticCurveTo(xQuarter, topY + Math.sin(waveOffset + 1.1) * lift, xMid, topY + topShiftMid);
+  ctx.quadraticCurveTo(xThreeQuarter, topY + Math.sin(waveOffset + 3.2) * lift, width, topY + topShiftRight);
+  ctx.lineTo(width, bottomY + topShiftRight * 0.35);
   ctx.quadraticCurveTo(
     xThreeQuarter,
-    topY + Math.sin(waveOffset + 3.7) * lift,
-    width,
-    topY + Math.sin(waveOffset + 4.8) * lift,
-  );
-  ctx.lineTo(width, bottomY + Math.sin(waveOffset + 4.8) * (lift * 0.42));
-  ctx.quadraticCurveTo(
-    xThreeQuarter,
-    bottomY + Math.sin(waveOffset + 3.6) * (lift * 0.42),
+    bottomY + Math.sin(waveOffset + 3.2) * (lift * 0.45),
     xMid,
-    bottomY + Math.sin(waveOffset + 2.4) * (lift * 0.42),
+    bottomY + topShiftMid * 0.35,
   );
   ctx.quadraticCurveTo(
     xQuarter,
-    bottomY + Math.sin(waveOffset + 1.2) * (lift * 0.42),
+    bottomY + Math.sin(waveOffset + 1.1) * (lift * 0.45),
     0,
-    bottomY + Math.sin(waveOffset) * (lift * 0.42),
+    bottomY + topShift * 0.35,
   );
   ctx.closePath();
 
-  ctx.fillStyle = `${layer.color}7a`;
+  ctx.fillStyle = `${layer.color}88`;
   ctx.fill();
-  ctx.strokeStyle = `${layer.color}e6`;
+  ctx.strokeStyle = `${layer.color}f5`;
   ctx.lineWidth = 1;
   ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(width, topY + topShiftRight);
+  ctx.lineTo(width + perspectiveSkew, topY + topShiftRight + sideDepthPx);
+  ctx.lineTo(width + perspectiveSkew, bottomY + topShiftRight * 0.35 + sideDepthPx);
+  ctx.lineTo(width, bottomY + topShiftRight * 0.35);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(15,23,42,0.28)';
+  ctx.fill();
 };
 
 const drawOverlay = (layers) => {
@@ -190,11 +185,12 @@ const drawOverlay = (layers) => {
   ctx.clearRect(0, 0, width, height);
 
   const view = calculateViewModel(layers, width, height);
+  const perspectiveSkew = clamp((state.heading - 180) * 0.09, -24, 24);
 
   ctx.fillStyle = 'rgba(14, 165, 233, 0.08)';
   ctx.fillRect(0, 0, width, view.horizonY);
 
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.18)';
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.2)';
   createGroundMask(width, height, view.horizonY, state.heading);
   ctx.fill();
 
@@ -205,31 +201,27 @@ const drawOverlay = (layers) => {
   layers.forEach((layer) => {
     const topY = depthToScreenY(layer.topDepthM, view.groundStartY, height, view.depthScaleMax);
     const bottomY = depthToScreenY(layer.bottomDepthM, view.groundStartY, height, view.depthScaleMax);
-    const waveOffset = (state.heading / 50) + layer.index * 0.53;
+    const waveOffset = state.heading / 60 + layer.index * 0.48;
 
-    drawLayerBand(layer, width, topY, bottomY, waveOffset);
+    drawVolumetricSlice(layer, width, topY, bottomY, waveOffset, perspectiveSkew);
 
     if (bottomY - topY > 24) {
       ctx.fillStyle = 'rgba(248,250,252,0.95)';
       ctx.font = '600 12px Inter, sans-serif';
-      ctx.fillText(
-        `${layer.name} · ${Math.round(layer.distanceFromUserM)}m`,
-        12,
-        (topY + bottomY) / 2,
-      );
+      ctx.fillText(`${layer.name} · ${(layer.porosity * 100).toFixed(0)}% φ`, 12, (topY + bottomY) / 2);
     }
   });
 
   ctx.restore();
 
-  ctx.strokeStyle = 'rgba(148,163,184,0.8)';
+  ctx.strokeStyle = 'rgba(148,163,184,0.85)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, view.horizonY);
   ctx.lineTo(width, view.horizonY);
   ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(226,232,240,0.5)';
+  ctx.strokeStyle = 'rgba(226,232,240,0.45)';
   ctx.setLineDash([5, 7]);
   ctx.beginPath();
   ctx.moveTo(width * 0.5, 0);
@@ -237,19 +229,21 @@ const drawOverlay = (layers) => {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.fillStyle = 'rgba(2, 6, 23, 0.58)';
-  ctx.fillRect(10, 10, Math.min(width - 20, 420), 58);
+  ctx.fillStyle = 'rgba(2, 6, 23, 0.62)';
+  ctx.fillRect(12, height - 72, Math.min(width - 24, 480), 58);
   ctx.fillStyle = '#e2e8f0';
   ctx.font = '600 13px Inter, sans-serif';
   ctx.fillText(
-    `Bearing ${Math.round(state.heading)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km · Pitch ${state.tiltDeg}°`,
-    18,
-    32,
+    `3D subsurface volume · Bearing ${Math.round(state.heading)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km`,
+    22,
+    height - 46,
   );
 
-  if (state.lat !== null && state.lon !== null) {
-    ctx.fillText(`Lat ${state.lat.toFixed(5)}, Lon ${state.lon.toFixed(5)} · Eye ${Math.round(state.observerHeightM)}m AGL`, 18, 52);
-  }
+  const locationText =
+    state.lat !== null && state.lon !== null
+      ? `Lat ${state.lat.toFixed(5)}, Lon ${state.lon.toFixed(5)} · Eye ${Math.round(state.observerHeightM)}m`
+      : `No GPS fix yet · Eye ${Math.round(state.observerHeightM)}m`;
+  ctx.fillText(locationText, 22, height - 26);
 };
 
 const renderLegend = (layers) => {
@@ -267,14 +261,11 @@ const renderLegend = (layers) => {
 const renderInsight = (layers) => {
   const horizonKm = (3.57 * Math.sqrt(Math.max(1, state.observerHeightM))).toFixed(1);
   const dominant = layers.reduce((prev, curr) => (curr.thicknessM > prev.thicknessM ? curr : prev), layers[0]);
-  const youngest = layers[0];
-  const confidence = Math.round(
-    (layers.reduce((sum, layer) => sum + layer.confidence, 0) / layers.length) * 100,
-  );
+  const confidence = Math.round((layers.reduce((sum, layer) => sum + layer.confidence, 0) / layers.length) * 100);
 
   el.insightText.textContent =
-    `Bands are clipped to terrain below the horizon and projected along your view ray as layered contours. ` +
-    `Top unit is ${youngest.name}; dominant thickness is ${dominant.name}; confidence ${confidence}%. ` +
+    `Volume model keeps subsurface context active even without direct terrain line-of-sight. ` +
+    `Dominant unit is ${dominant.name}; estimated confidence ${confidence}%. ` +
     `At ${Math.round(state.observerHeightM)}m eye height, geometric horizon is ~${horizonKm} km.`;
 };
 
@@ -296,7 +287,7 @@ const setHeading = (value, source = 'manual') => {
   state.heading = clampHeading(value);
   state.source = source;
   el.headingStatus.textContent =
-    source === 'sensor' ? `${Math.round(state.heading)}° (live)` : `${Math.round(state.heading)}° (manual)`;
+    source === 'sensor' ? `${Math.round(state.heading)}° live` : `${Math.round(state.heading)}° manual`;
   syncSliders();
   refresh();
 };
@@ -304,14 +295,12 @@ const setHeading = (value, source = 'manual') => {
 const setTiltFromSensor = (rawTilt) => {
   state.tiltDeg = clamp(Math.round(rawTilt), -20, 80);
   state.distanceKm = Number((0.8 + ((80 - clamp(state.tiltDeg, 0, 80)) / 80) * 9.2).toFixed(1));
-  el.tiltStatus.textContent = `${state.tiltDeg}° (live)`;
   syncSliders();
   refresh();
 };
 
-const setObserverHeight = (value, source = 'manual') => {
+const setObserverHeight = (value) => {
   state.observerHeightM = clamp(Math.round(value), 1, 500);
-  el.elevationStatus.textContent = `${state.observerHeightM} m AGL${source === 'sensor' ? ' (live)' : ''}`;
   syncSliders();
   refresh();
 };
@@ -343,7 +332,7 @@ const startCamera = async () => {
     el.cameraFeed.srcObject = stream;
     await el.cameraFeed.play();
     el.cameraFeed.classList.add('active');
-    el.centerHint.textContent = 'AR view active. Point toward terrain to explore layers.';
+    el.centerHint.textContent = 'AR view active. Subsurface volume remains visible indoors.';
     el.startArBtn.textContent = 'AR view active';
     el.startArBtn.disabled = true;
     return true;
@@ -401,8 +390,7 @@ const setupOrientation = async () => {
     }
 
     if (typeof event.beta === 'number') {
-      const sensorTilt = clamp(event.beta, -20, 80);
-      setTiltFromSensor(sensorTilt);
+      setTiltFromSensor(clamp(event.beta, -20, 80));
     }
   });
 
@@ -411,8 +399,7 @@ const setupOrientation = async () => {
 };
 
 el.menuBtn.addEventListener('click', () => {
-  const shouldOpen = el.settingsPanel.hasAttribute('hidden');
-  setMenuOpen(shouldOpen);
+  setMenuOpen(el.settingsPanel.hasAttribute('hidden'));
 });
 
 el.closeMenuBtn.addEventListener('click', () => {
@@ -452,12 +439,11 @@ el.distanceInput.addEventListener('input', (event) => {
 
 el.tiltInput.addEventListener('input', (event) => {
   state.tiltDeg = Number(event.target.value);
-  el.tiltStatus.textContent = `${state.tiltDeg}° (manual)`;
   refresh();
 });
 
 el.elevationInput.addEventListener('input', (event) => {
-  setObserverHeight(Number(event.target.value), 'manual');
+  setObserverHeight(Number(event.target.value));
 });
 
 window.addEventListener('resize', () => {
@@ -466,6 +452,7 @@ window.addEventListener('resize', () => {
 });
 
 fitCanvas();
+el.modeStatus.textContent = '3D subsurface';
 setObserverHeight(state.observerHeightM);
 syncSliders();
 refresh();
