@@ -9,6 +9,7 @@ const state = {
   stream: null,
   orientationActive: false,
   centerHintTimers: [],
+  groundVisibility: 1,
 };
 
 const geologicPalette = [
@@ -103,8 +104,9 @@ const calculateViewModel = (layers, width, height) => {
   const indoorMinimumM = 900;
   const visibleDistanceM = Math.max(indoorMinimumM, Math.min(requestedLookAheadM, geometricHorizonM * 1.15));
 
-  const horizonOffset = clamp((-state.tiltDeg / 55) * (height * 0.33), -height * 0.28, height * 0.38);
-  const horizonY = clamp(height * 0.41 + horizonOffset, height * 0.15, height * 0.78);
+  const normalizedTilt = clamp((state.tiltDeg + 20) / 100, 0, 1);
+  const horizonY = height * (0.95 - normalizedTilt * 1.18);
+  const groundVisibility = clamp((state.tiltDeg + 2) / 18, 0, 1);
   const groundStartY = clamp(horizonY + 5, 0, height - 12);
 
   const depthScaleMax = Math.max(maxDepth, observerHeightM + visibleDistanceM * 0.26);
@@ -115,7 +117,36 @@ const calculateViewModel = (layers, width, height) => {
     maxDepth,
     visibleDistanceM,
     depthScaleMax,
+    groundVisibility,
   };
+};
+
+const drawDepthGuide = (width, height, view) => {
+  const guideY = Math.max(view.groundStartY + 12, 20);
+  const segments = [0.1, 0.25, 0.45, 0.7, 1];
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(226,232,240,0.34)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.moveTo(10, guideY);
+  ctx.lineTo(width - 10, guideY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = 'rgba(241,245,249,0.88)';
+  ctx.font = '600 11px Inter, sans-serif';
+  segments.forEach((fraction, index) => {
+    const x = 12 + (width - 24) * fraction;
+    const distanceM = Math.round(view.visibleDistanceM * fraction);
+    ctx.fillRect(x - 0.5, guideY - 4, 1, 8);
+    if (index % 2 === 0 || index === segments.length - 1) {
+      ctx.fillText(`${distanceM}m`, x - 12, guideY - 7);
+    }
+  });
+  ctx.fillText('distance from viewport', 14, guideY + 14);
+  ctx.restore();
 };
 
 const createGroundMask = (width, height, horizonY, headingDeg) => {
@@ -186,41 +217,56 @@ const drawOverlay = (layers) => {
   ctx.clearRect(0, 0, width, height);
 
   const view = calculateViewModel(layers, width, height);
+  state.groundVisibility = view.groundVisibility;
   const perspectiveSkew = clamp((state.heading - 180) * 0.09, -24, 24);
+  const lookingSky = view.groundVisibility <= 0.02;
 
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.08)';
-  ctx.fillRect(0, 0, width, view.horizonY);
+  if (!lookingSky) {
+    ctx.fillStyle = `rgba(14, 165, 233, ${0.05 + view.groundVisibility * 0.05})`;
+    ctx.fillRect(0, 0, width, Math.max(0, view.horizonY));
+  }
 
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.2)';
-  createGroundMask(width, height, view.horizonY, state.heading);
-  ctx.fill();
+  if (!lookingSky) {
+    ctx.fillStyle = `rgba(148, 163, 184, ${0.08 + view.groundVisibility * 0.18})`;
+    createGroundMask(width, height, view.horizonY, state.heading);
+    ctx.fill();
+  }
 
-  ctx.save();
-  createGroundMask(width, height, view.horizonY, state.heading);
-  ctx.clip();
+  if (!lookingSky) {
+    ctx.save();
+    createGroundMask(width, height, view.horizonY, state.heading);
+    ctx.clip();
 
-  layers.forEach((layer) => {
-    const topY = depthToScreenY(layer.topDepthM, view.groundStartY, height, view.depthScaleMax);
-    const bottomY = depthToScreenY(layer.bottomDepthM, view.groundStartY, height, view.depthScaleMax);
-    const waveOffset = state.heading / 60 + layer.index * 0.48;
+    layers.forEach((layer) => {
+      const topY = depthToScreenY(layer.topDepthM, view.groundStartY, height, view.depthScaleMax);
+      const bottomY = depthToScreenY(layer.bottomDepthM, view.groundStartY, height, view.depthScaleMax);
+      const waveOffset = state.heading / 60 + layer.index * 0.48;
 
-    drawVolumetricSlice(layer, width, topY, bottomY, waveOffset, perspectiveSkew);
+      drawVolumetricSlice(layer, width, topY, bottomY, waveOffset, perspectiveSkew);
 
-    if (bottomY - topY > 24) {
-      ctx.fillStyle = 'rgba(248,250,252,0.95)';
-      ctx.font = '600 12px Inter, sans-serif';
-      ctx.fillText(`${layer.name} · ${(layer.porosity * 100).toFixed(0)}% φ`, 12, (topY + bottomY) / 2);
-    }
-  });
+      if (bottomY - topY > 24) {
+        ctx.fillStyle = 'rgba(248,250,252,0.95)';
+        ctx.font = '600 12px Inter, sans-serif';
+        ctx.fillText(
+          `${layer.name} · ${layer.age} · ${(layer.porosity * 100).toFixed(0)}% φ`,
+          12,
+          (topY + bottomY) / 2,
+        );
+      }
+    });
 
-  ctx.restore();
+    ctx.restore();
+  }
 
-  ctx.strokeStyle = 'rgba(148,163,184,0.85)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, view.horizonY);
-  ctx.lineTo(width, view.horizonY);
-  ctx.stroke();
+  if (!lookingSky) {
+    ctx.strokeStyle = 'rgba(148,163,184,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, view.horizonY);
+    ctx.lineTo(width, view.horizonY);
+    ctx.stroke();
+    drawDepthGuide(width, height, view);
+  }
 
   ctx.strokeStyle = 'rgba(226,232,240,0.45)';
   ctx.setLineDash([5, 7]);
@@ -235,7 +281,9 @@ const drawOverlay = (layers) => {
   ctx.fillStyle = '#e2e8f0';
   ctx.font = '600 13px Inter, sans-serif';
   ctx.fillText(
-    `3D subsurface volume · Bearing ${Math.round(state.heading)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km`,
+    lookingSky
+      ? `Sky view detected · Geological volume hidden`
+      : `3D ground volume · Bearing ${Math.round(state.heading)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km`,
     22,
     height - 46,
   );
@@ -265,9 +313,11 @@ const renderInsight = (layers) => {
   const confidence = Math.round((layers.reduce((sum, layer) => sum + layer.confidence, 0) / layers.length) * 100);
 
   el.insightText.textContent =
-    `Volume model keeps subsurface context active even without direct terrain line-of-sight. ` +
-    `Dominant unit is ${dominant.name}; estimated confidence ${confidence}%. ` +
-    `At ${Math.round(state.observerHeightM)}m eye height, geometric horizon is ~${horizonKm} km.`;
+    state.groundVisibility < 0.05
+      ? 'Camera tilt indicates skyward view, so the geological overlay is hidden until ground re-enters the viewport.'
+      : `3D ground volume is projected from the local surface downward with age-banded slices and depth cues. ` +
+        `Dominant unit is ${dominant.name}; estimated confidence ${confidence}%. ` +
+        `At ${Math.round(state.observerHeightM)}m eye height, geometric horizon is ~${horizonKm} km.`;
 };
 
 const refresh = () => {
