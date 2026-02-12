@@ -58,18 +58,18 @@ body {
 
 .hud {
   position: absolute;
-  left: 0;
-  right: 0;
   z-index: 2;
   padding: 0.75rem;
 }
 
 .top-hud {
   top: 0;
-  display: flex;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  gap: 0.38rem;
   align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
 }
 
 .menu-btn {
@@ -83,25 +83,35 @@ body {
 }
 
 .status-pill {
-  background: rgba(2, 6, 23, 0.62);
+  background: rgba(2, 6, 23, 0.68);
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 999px;
-  padding: 0.28rem 0.72rem;
+  padding: 0.38rem 0.72rem;
   display: flex;
-  gap: 0.38rem;
-  font-size: 0.82rem;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.status-pill strong {
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-pill span {
   color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .settings-panel {
   position: absolute;
-  top: 3.8rem;
+  top: 4.4rem;
   left: 0.75rem;
   z-index: 4;
-  width: min(92vw, 22rem);
+  width: min(92vw, 23rem);
   max-height: calc(100vh - 5rem);
   overflow: auto;
   background: var(--panel);
@@ -183,11 +193,16 @@ body {
 }
 
 .center-hint {
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 1rem;
+  width: min(86vw, 30rem);
   text-align: center;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   color: #e2e8f0;
+  background: rgba(2, 6, 23, 0.48);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 999px;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
 }
 
@@ -202,4 +217,14 @@ body {
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   font-size: 0.75rem;
+}
+
+@media (max-width: 700px) {
+  .top-hud {
+    grid-template-columns: auto 1fr;
+  }
+
+  .status-pill:nth-of-type(3) {
+    grid-column: span 2;
+  }
 }
