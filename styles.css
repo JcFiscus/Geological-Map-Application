@@ -113,6 +113,10 @@ body {
   backdrop-filter: blur(8px);
 }
 
+.settings-panel[hidden] {
+  display: none;
+}
+
 .settings-panel h1,
 .settings-panel p {
   margin: 0;
