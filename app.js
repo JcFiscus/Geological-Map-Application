@@ -472,7 +472,10 @@ const setupOrientation = async () => {
     }
 
     if (typeof event.beta === 'number') {
-      setTiltFromSensor(clamp(event.beta, -20, 80));
+      // `event.beta` increases when the device pitches upward on most phones,
+      // but our overlay model expects positive tilt when looking toward ground.
+      // Invert beta so sky/ground detection aligns with camera direction.
+      setTiltFromSensor(clamp(-event.beta, -20, 80));
     }
   });
 
