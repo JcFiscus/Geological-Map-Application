@@ -16,7 +16,8 @@
           <button id="menuBtn" class="menu-btn" aria-expanded="false" aria-controls="settingsPanel">☰</button>
           <div class="status-pill"><span>Location</span><strong id="locationStatus">No fix</strong></div>
           <div class="status-pill"><span>Heading</span><strong id="headingStatus">Manual</strong></div>
-          <div class="status-pill"><span>Tilt</span><strong id="tiltStatus">35°</strong></div>
+          <div class="status-pill"><span>Pitch</span><strong id="tiltStatus">35°</strong></div>
+          <div class="status-pill"><span>Observer</span><strong id="elevationStatus">2 m AGL</strong></div>
         </div>
 
         <aside id="settingsPanel" class="settings-panel" hidden>
@@ -43,8 +44,13 @@
           </label>
 
           <label class="control-field" for="tiltInput">
-            <span>Tilt estimate (°)</span>
-            <input id="tiltInput" type="range" min="5" max="80" step="1" value="35" />
+            <span>Camera pitch (° down from horizon)</span>
+            <input id="tiltInput" type="range" min="-20" max="80" step="1" value="35" />
+          </label>
+
+          <label class="control-field" for="elevationInput">
+            <span>Observer height above local ground (m)</span>
+            <input id="elevationInput" type="range" min="1" max="500" step="1" value="2" />
           </label>
 
           <p id="insightText" class="insight"></p>
