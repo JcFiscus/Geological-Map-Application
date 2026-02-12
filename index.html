@@ -8,52 +8,53 @@
   </head>
   <body>
     <main class="app-shell">
-      <header>
+      <header class="top-card">
         <p class="eyebrow">Geological Map Application</p>
-        <h1>GeoScope AR Prototype</h1>
+        <h1>GeoScope AR Field View</h1>
         <p>
-          Point your phone toward the ground or a distant canyon and preview layered
-          geological time bands for the direction you are facing.
+          Open the camera and point your phone at the landscape. GeoScope overlays predicted
+          geology bands directly on the live view with compass and location guidance.
         </p>
       </header>
 
-      <section class="controls" aria-label="Location and orientation controls">
-        <div class="control-row">
-          <button id="locationBtn" class="button">Use my location</button>
-          <button id="orientationBtn" class="button secondary">
-            Enable compass
-          </button>
+      <section class="ar-stage" aria-label="Camera and geology overlay">
+        <video id="cameraFeed" playsinline muted></video>
+        <canvas id="overlayCanvas" width="1080" height="1920"></canvas>
+
+        <div class="hud top-hud">
+          <div class="status-pill"><span>Location</span><strong id="locationStatus">No fix</strong></div>
+          <div class="status-pill"><span>Heading</span><strong id="headingStatus">Manual</strong></div>
+          <div class="status-pill"><span>Tilt</span><strong id="tiltStatus">35°</strong></div>
         </div>
 
-        <div class="status-grid">
-          <div>
-            <h2>Position</h2>
-            <p id="locationStatus">No location fix yet.</p>
+        <div class="hud center-hint" id="centerHint">Move your phone slowly to stabilize the overlay.</div>
+
+        <div class="hud bottom-hud">
+          <div class="control-row">
+            <button id="startArBtn" class="button">Start AR view</button>
+            <button id="locationBtn" class="button secondary">Use my location</button>
+            <button id="orientationBtn" class="button tertiary">Enable compass</button>
           </div>
-          <div>
-            <h2>Heading</h2>
-            <p id="headingStatus">Using manual heading.</p>
+
+          <div class="slider-grid">
+            <label for="headingRange">Manual heading <span id="headingValue">90</span>°</label>
+            <input id="headingRange" type="range" min="0" max="359" value="90" step="1" />
+
+            <label for="distanceRange">Look-ahead <span id="distanceValue">2.0</span> km</label>
+            <input id="distanceRange" type="range" min="0.5" max="15" value="2" step="0.1" />
+
+            <label for="elevationRange">Ground tilt <span id="elevationValue">35</span>°</label>
+            <input id="elevationRange" type="range" min="5" max="80" value="35" step="1" />
           </div>
         </div>
-
-        <label for="headingRange">Manual heading (<span id="headingValue">90</span>°)</label>
-        <input id="headingRange" type="range" min="0" max="359" value="90" step="1" />
-
-        <label for="distanceRange">Look-ahead distance (<span id="distanceValue">2.0</span> km)</label>
-        <input id="distanceRange" type="range" min="0.5" max="15" value="2" step="0.1" />
-
-        <label for="elevationRange">Camera tilt to ground (<span id="elevationValue">35</span>°)</label>
-        <input id="elevationRange" type="range" min="5" max="80" value="35" step="1" />
       </section>
 
-      <section class="visualization" aria-label="Geology overlay preview">
-        <canvas id="overlayCanvas" width="1100" height="540"></canvas>
+      <section class="info-card" aria-label="Interpretation details">
+        <div>
+          <h2>Directional geology insight</h2>
+          <p id="insightText"></p>
+        </div>
         <div id="legend" class="legend"></div>
-      </section>
-
-      <section class="insights" aria-label="Interpretation notes">
-        <h2>Directional geology insight</h2>
-        <p id="insightText"></p>
       </section>
     </main>
 
