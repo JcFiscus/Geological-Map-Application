@@ -8,42 +8,47 @@
   </head>
   <body>
     <main class="app-shell">
-      <header class="top-card">
-        <p class="eyebrow">Geological Map Application</p>
-        <h1>GeoScope AR Field View</h1>
-        <p>
-          Open the camera and point your phone at the landscape. GeoScope overlays predicted
-          geology bands directly on the live view with compass and location guidance.
-        </p>
-      </header>
-
       <section class="ar-stage" aria-label="Camera and geology overlay">
         <video id="cameraFeed" playsinline muted autoplay></video>
         <canvas id="overlayCanvas" width="1080" height="1920"></canvas>
 
         <div class="hud top-hud">
+          <button id="menuBtn" class="menu-btn" aria-expanded="false" aria-controls="settingsPanel">☰</button>
           <div class="status-pill"><span>Location</span><strong id="locationStatus">No fix</strong></div>
           <div class="status-pill"><span>Heading</span><strong id="headingStatus">Manual</strong></div>
           <div class="status-pill"><span>Tilt</span><strong id="tiltStatus">35°</strong></div>
         </div>
 
-        <div class="hud center-hint" id="centerHint">Move your phone slowly to stabilize the overlay.</div>
+        <aside id="settingsPanel" class="settings-panel" hidden>
+          <h1>GeoScope AR</h1>
+          <p>Use live sensors or tune inputs manually to align projected strata with terrain in front of your camera.</p>
 
-        <div class="hud bottom-hud">
           <div class="control-row">
             <button id="startArBtn" class="button">Start AR view</button>
             <button id="locationBtn" class="button secondary">Use my location</button>
             <button id="orientationBtn" class="button tertiary">Enable compass</button>
           </div>
-        </div>
-      </section>
 
-      <section class="info-card" aria-label="Interpretation details">
-        <div>
-          <h2>Directional geology insight</h2>
-          <p id="insightText"></p>
-        </div>
-        <div id="legend" class="legend"></div>
+          <label class="control-field" for="headingInput">
+            <span>Manual heading</span>
+            <input id="headingInput" type="range" min="0" max="359" step="1" value="90" />
+          </label>
+
+          <label class="control-field" for="distanceInput">
+            <span>Look-ahead distance (km)</span>
+            <input id="distanceInput" type="range" min="0.5" max="12" step="0.1" value="2" />
+          </label>
+
+          <label class="control-field" for="tiltInput">
+            <span>Tilt estimate (°)</span>
+            <input id="tiltInput" type="range" min="5" max="80" step="1" value="35" />
+          </label>
+
+          <p id="insightText" class="insight"></p>
+          <div id="legend" class="legend"></div>
+        </aside>
+
+        <div class="hud center-hint" id="centerHint">Move your phone slowly to stabilize the overlay.</div>
       </section>
     </main>
 
