@@ -18,7 +18,7 @@
       </header>
 
       <section class="ar-stage" aria-label="Camera and geology overlay">
-        <video id="cameraFeed" playsinline muted></video>
+        <video id="cameraFeed" playsinline muted autoplay></video>
         <canvas id="overlayCanvas" width="1080" height="1920"></canvas>
 
         <div class="hud top-hud">
@@ -34,17 +34,6 @@
             <button id="startArBtn" class="button">Start AR view</button>
             <button id="locationBtn" class="button secondary">Use my location</button>
             <button id="orientationBtn" class="button tertiary">Enable compass</button>
-          </div>
-
-          <div class="slider-grid">
-            <label for="headingRange">Manual heading <span id="headingValue">90</span>°</label>
-            <input id="headingRange" type="range" min="0" max="359" value="90" step="1" />
-
-            <label for="distanceRange">Look-ahead <span id="distanceValue">2.0</span> km</label>
-            <input id="distanceRange" type="range" min="0.5" max="15" value="2" step="0.1" />
-
-            <label for="elevationRange">Ground tilt <span id="elevationValue">35</span>°</label>
-            <input id="elevationRange" type="range" min="5" max="80" value="35" step="1" />
           </div>
         </div>
       </section>
