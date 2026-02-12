@@ -8,6 +8,7 @@ const state = {
   source: 'manual',
   stream: null,
   orientationActive: false,
+  centerHintTimers: [],
 };
 
 const geologicPalette = [
@@ -310,14 +311,45 @@ const setMenuOpen = (isOpen) => {
   el.menuBtn.setAttribute('aria-expanded', String(isOpen));
 };
 
+const clearCenterHintTimers = () => {
+  state.centerHintTimers.forEach((timer) => clearTimeout(timer));
+  state.centerHintTimers = [];
+};
+
+const showCenterHint = (message, options = {}) => {
+  const { autoHideMs = 0 } = options;
+  const fadeDurationMs = 420;
+
+  clearCenterHintTimers();
+  el.centerHint.textContent = message;
+  el.centerHint.classList.remove('fade-out');
+  el.centerHint.classList.add('visible');
+
+  if (!autoHideMs) {
+    return;
+  }
+
+  const fadeDelayMs = Math.max(0, autoHideMs - fadeDurationMs);
+  const fadeTimer = window.setTimeout(() => {
+    el.centerHint.classList.add('fade-out');
+  }, fadeDelayMs);
+
+  const hideTimer = window.setTimeout(() => {
+    el.centerHint.classList.remove('visible', 'fade-out');
+    el.centerHint.textContent = '';
+  }, autoHideMs);
+
+  state.centerHintTimers.push(fadeTimer, hideTimer);
+};
+
 const startCamera = async () => {
   if (!navigator.mediaDevices?.getUserMedia) {
-    el.centerHint.textContent = 'Camera not supported in this browser.';
+    showCenterHint('Camera not supported in this browser.');
     return false;
   }
 
   if (state.stream) {
-    el.centerHint.textContent = 'AR view is active. Move slowly for stable alignment.';
+    showCenterHint('AR view is already active.', { autoHideMs: 3000 });
     return true;
   }
 
@@ -332,12 +364,12 @@ const startCamera = async () => {
     el.cameraFeed.srcObject = stream;
     await el.cameraFeed.play();
     el.cameraFeed.classList.add('active');
-    el.centerHint.textContent = 'AR view active. Subsurface volume remains visible indoors.';
+    showCenterHint('AR view active. Subsurface volume remains visible indoors.', { autoHideMs: 3000 });
     el.startArBtn.textContent = 'AR view active';
     el.startArBtn.disabled = true;
     return true;
   } catch (error) {
-    el.centerHint.textContent = `Camera access failed: ${error.message}`;
+    showCenterHint(`Camera access failed: ${error.message}`);
     return false;
   }
 };
@@ -456,3 +488,4 @@ el.modeStatus.textContent = '3D subsurface';
 setObserverHeight(state.observerHeightM);
 syncSliders();
 refresh();
+showCenterHint('Move your phone slowly to stabilize the overlay.');
