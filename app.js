@@ -24,6 +24,7 @@ const el = {
   menuBtn: document.querySelector('#menuBtn'),
   settingsPanel: document.querySelector('#settingsPanel'),
   startArBtn: document.querySelector('#startArBtn'),
+  closeMenuBtn: document.querySelector('#closeMenuBtn'),
   cameraFeed: document.querySelector('#cameraFeed'),
   locationBtn: document.querySelector('#locationBtn'),
   orientationBtn: document.querySelector('#orientationBtn'),
@@ -239,15 +240,20 @@ const setTiltFromSensor = (rawTilt) => {
   refresh();
 };
 
+const setMenuOpen = (isOpen) => {
+  el.settingsPanel.toggleAttribute('hidden', !isOpen);
+  el.menuBtn.setAttribute('aria-expanded', String(isOpen));
+};
+
 const startCamera = async () => {
   if (!navigator.mediaDevices?.getUserMedia) {
     el.centerHint.textContent = 'Camera not supported in this browser.';
-    return;
+    return false;
   }
 
   if (state.stream) {
     el.centerHint.textContent = 'AR view is active. Move slowly for stable alignment.';
-    return;
+    return true;
   }
 
   try {
@@ -264,8 +270,10 @@ const startCamera = async () => {
     el.centerHint.textContent = 'AR view active. Point toward terrain to explore layers.';
     el.startArBtn.textContent = 'AR view active';
     el.startArBtn.disabled = true;
+    return true;
   } catch (error) {
     el.centerHint.textContent = `Camera access failed: ${error.message}`;
+    return false;
   }
 };
 
@@ -328,16 +336,19 @@ const setupOrientation = async () => {
 
 el.menuBtn.addEventListener('click', () => {
   const shouldOpen = el.settingsPanel.hasAttribute('hidden');
-  if (shouldOpen) {
-    el.settingsPanel.removeAttribute('hidden');
-  } else {
-    el.settingsPanel.setAttribute('hidden', '');
-  }
-  el.menuBtn.setAttribute('aria-expanded', String(shouldOpen));
+  setMenuOpen(shouldOpen);
+});
+
+el.closeMenuBtn.addEventListener('click', () => {
+  setMenuOpen(false);
 });
 
 el.startArBtn.addEventListener('click', async () => {
-  await startCamera();
+  const started = await startCamera();
+  if (started) {
+    setMenuOpen(false);
+  }
+
   await setupOrientation().catch((error) => {
     el.headingStatus.textContent = `Compass unavailable (${error.message})`;
   });
