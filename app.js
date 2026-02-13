@@ -48,6 +48,40 @@ const ctx = el.canvas.getContext('2d');
 const clampHeading = (value) => ((value % 360) + 360) % 360;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
+const getScreenOrientationAngle = () => {
+  if (typeof window.screen?.orientation?.angle === 'number') {
+    return clampHeading(window.screen.orientation.angle);
+  }
+
+  if (typeof window.orientation === 'number') {
+    return clampHeading(window.orientation);
+  }
+
+  return 0;
+};
+
+const getTiltFromDeviceOrientation = (event) => {
+  if (typeof event.beta !== 'number') {
+    return null;
+  }
+
+  const beta = event.beta;
+  const gamma = typeof event.gamma === 'number' ? event.gamma : 0;
+  const orientation = Math.round(getScreenOrientationAngle() / 90) * 90;
+
+  switch (clampHeading(orientation)) {
+    case 90:
+      return -gamma;
+    case 180:
+      return beta;
+    case 270:
+      return gamma;
+    case 0:
+    default:
+      return -beta;
+  }
+};
+
 const createDirectionalStack = () => {
   const distanceFactor = Math.min(state.distanceKm / 12, 1);
   const pitchFactor = clamp((clamp(state.tiltDeg, -20, 80) + 20) / 100, 0, 1);
@@ -471,11 +505,9 @@ const setupOrientation = async () => {
       setHeading(heading, 'sensor');
     }
 
-    if (typeof event.beta === 'number') {
-      // `event.beta` increases when the device pitches upward on most phones,
-      // but our overlay model expects positive tilt when looking toward ground.
-      // Invert beta so sky/ground detection aligns with camera direction.
-      setTiltFromSensor(clamp(-event.beta, -20, 80));
+    const sensorTilt = getTiltFromDeviceOrientation(event);
+    if (sensorTilt !== null) {
+      setTiltFromSensor(clamp(sensorTilt, -20, 80));
     }
   });
 
