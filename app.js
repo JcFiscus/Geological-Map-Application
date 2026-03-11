@@ -1,25 +1,28 @@
 const state = {
   lat: null,
   lon: null,
+  altitudeM: null,
+  locationAccuracyM: null,
   heading: 90,
+  pitchDeg: 20,
+  rollDeg: 0,
   distanceKm: 2,
-  tiltDeg: 35,
   observerHeightM: 2,
   source: 'manual',
   stream: null,
   orientationActive: false,
+  locationWatchId: null,
   centerHintTimers: [],
   groundVisibility: 1,
 };
 
 const geologicPalette = [
-  { name: 'Urban fill & alluvium', age: '0-2.6 Ma', color: '#f3d27a', porosity: 0.33 },
-  { name: 'Shallow aquifer sands', age: '2.6-10 Ma', color: '#e7bd72', porosity: 0.28 },
-  { name: 'Floodplain silts', age: '10-34 Ma', color: '#cfa070', porosity: 0.22 },
-  { name: 'Deltaic sandstone', age: '34-100 Ma', color: '#b67f61', porosity: 0.18 },
-  { name: 'Marine shale', age: '100-180 Ma', color: '#8f6a6e', porosity: 0.11 },
-  { name: 'Carbonate shelf', age: '180-300 Ma', color: '#6c5b71', porosity: 0.09 },
-  { name: 'Metamorphic basement', age: '>300 Ma', color: '#4f4f73', porosity: 0.03 },
+  { name: 'Surface soil & alluvium', age: 'Holocene', color: '#f3d27a', density: 1.7 },
+  { name: 'Weathered regolith', age: 'Quaternary', color: '#e7bd72', density: 1.95 },
+  { name: 'Sandstone package', age: 'Mesozoic', color: '#c99263', density: 2.2 },
+  { name: 'Shale package', age: 'Paleozoic', color: '#9d6f62', density: 2.45 },
+  { name: 'Carbonate bedrock', age: 'Paleozoic', color: '#7f6771', density: 2.58 },
+  { name: 'Metamorphic basement', age: 'Precambrian', color: '#4f4f73', density: 2.8 },
 ];
 
 const el = {
@@ -45,29 +48,28 @@ const el = {
 
 const ctx = el.canvas.getContext('2d');
 
-const clampHeading = (value) => ((value % 360) + 360) % 360;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const clampHeading = (value) => ((value % 360) + 360) % 360;
+const toRadians = (degrees) => (degrees * Math.PI) / 180;
 
 const getScreenOrientationAngle = () => {
   if (typeof window.screen?.orientation?.angle === 'number') {
     return clampHeading(window.screen.orientation.angle);
   }
-
   if (typeof window.orientation === 'number') {
     return clampHeading(window.orientation);
   }
-
   return 0;
 };
 
-const getTiltFromDeviceOrientation = (event) => {
+const normalizePitch = (event) => {
   if (typeof event.beta !== 'number') {
     return null;
   }
 
+  const orientation = Math.round(getScreenOrientationAngle() / 90) * 90;
   const beta = event.beta;
   const gamma = typeof event.gamma === 'number' ? event.gamma : 0;
-  const orientation = Math.round(getScreenOrientationAngle() / 90) * 90;
 
   switch (clampHeading(orientation)) {
     case 90:
@@ -82,38 +84,26 @@ const getTiltFromDeviceOrientation = (event) => {
   }
 };
 
-const createDirectionalStack = () => {
-  const distanceFactor = Math.min(state.distanceKm / 12, 1);
-  const pitchFactor = clamp((clamp(state.tiltDeg, -20, 80) + 20) / 100, 0, 1);
+const normalizeRoll = (event) => {
+  if (typeof event.gamma !== 'number') {
+    return 0;
+  }
 
-  const weightedLayers = geologicPalette.map((layer, index) => {
-    const base = 80 + index * 42;
-    const headingPulse = Math.sin((state.heading + index * 31) * 0.05) * (20 + index * 2.5);
-    const distanceDepth = distanceFactor * (34 + index * 18);
-    const pitchDepth = (1 - pitchFactor) * (44 + index * 6.5);
+  const orientation = Math.round(getScreenOrientationAngle() / 90) * 90;
+  const gamma = event.gamma;
 
-    return {
-      ...layer,
-      thicknessM: Math.max(34, base + headingPulse + distanceDepth + pitchDepth),
-      confidence: clamp(0.58 + distanceFactor * 0.24 - index * 0.03, 0.42, 0.96),
-    };
-  });
+  if (orientation === 0) {
+    return gamma;
+  }
+  if (orientation === 180) {
+    return -gamma;
+  }
+  return 0;
+};
 
-  let runningDepth = 0;
-  return weightedLayers.map((layer, index) => {
-    const topDepthM = runningDepth;
-    const bottomDepthM = runningDepth + layer.thicknessM;
-    runningDepth = bottomDepthM;
-
-    return {
-      ...layer,
-      index,
-      topDepthM,
-      bottomDepthM,
-      midpointDepthM: (topDepthM + bottomDepthM) / 2,
-      distanceFromUserM: state.distanceKm * 1000 + topDepthM * 0.65,
-    };
-  });
+const smoothAngle = (current, next, alpha = 0.2) => {
+  const delta = ((next - current + 540) % 360) - 180;
+  return clampHeading(current + delta * alpha);
 };
 
 const fitCanvas = () => {
@@ -124,183 +114,154 @@ const fitCanvas = () => {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 };
 
-const depthToScreenY = (depthM, horizonY, height, maxDepth) => {
-  const depthFraction = 1 - Math.exp((-depthM / maxDepth) * 2.1);
-  return clamp(horizonY + depthFraction * (height - horizonY), horizonY + 8, height - 4);
+const createDirectionalStack = () => {
+  const depthMultiplier = clamp(0.8 + state.distanceKm / 9, 0.8, 2.2);
+  const tiltFactor = clamp((state.pitchDeg + 45) / 90, 0, 1);
+
+  let depth = 0;
+  return geologicPalette.map((layer, index) => {
+    const baseThickness = 20 + index * 45;
+    const headingVariation = Math.sin(toRadians(state.heading + index * 20)) * (index * 6);
+    const thicknessM = Math.max(18, baseThickness * depthMultiplier * (0.8 + tiltFactor * 0.3) + headingVariation);
+    const topDepthM = depth;
+    depth += thicknessM;
+
+    return {
+      ...layer,
+      index,
+      thicknessM,
+      topDepthM,
+      bottomDepthM: depth,
+    };
+  });
 };
 
 const calculateViewModel = (layers, width, height) => {
   const maxDepth = layers[layers.length - 1].bottomDepthM;
-  const observerHeightM = Math.max(1, state.observerHeightM);
+  const eyeHeightM = Math.max(1, state.observerHeightM);
+  const geometricHorizonM = 3570 * Math.sqrt(eyeHeightM);
+  const visibleDistanceM = Math.min(state.distanceKm * 1000, geometricHorizonM * 1.05);
 
-  const geometricHorizonM = 3570 * Math.sqrt(observerHeightM);
-  const requestedLookAheadM = state.distanceKm * 1000;
-  const indoorMinimumM = 900;
-  const visibleDistanceM = Math.max(indoorMinimumM, Math.min(requestedLookAheadM, geometricHorizonM * 1.15));
+  const pitchDown = clamp(state.pitchDeg, -45, 80);
+  const groundVisibility = clamp((pitchDown + 3) / 18, 0, 1);
+  const horizonY = height * (0.48 + clamp(-pitchDown, -35, 35) * 0.0105);
 
-  const normalizedTilt = clamp((state.tiltDeg + 20) / 100, 0, 1);
-  const horizonY = height * (0.95 - normalizedTilt * 1.18);
-  const groundVisibility = clamp((state.tiltDeg + 2) / 18, 0, 1);
-  const groundStartY = clamp(horizonY + 5, 0, height - 12);
-
-  const depthScaleMax = Math.max(maxDepth, observerHeightM + visibleDistanceM * 0.26);
+  const fovYDeg = 55;
+  const metersPerPixel = Math.max(0.15, visibleDistanceM / height);
 
   return {
+    width,
+    height,
     horizonY,
-    groundStartY,
+    groundVisibility,
+    lookingSky: groundVisibility < 0.04,
     maxDepth,
     visibleDistanceM,
-    depthScaleMax,
-    groundVisibility,
+    fovYDeg,
+    metersPerPixel,
   };
 };
 
-const drawDepthGuide = (width, height, view) => {
-  const guideY = Math.max(view.groundStartY + 12, 20);
-  const segments = [0.1, 0.25, 0.45, 0.7, 1];
+const worldBearingToScreenX = (targetBearing, view) => {
+  const delta = ((targetBearing - state.heading + 540) % 360) - 180;
+  const normalized = delta / 35;
+  return view.width * (0.5 + normalized);
+};
 
+const depthToScreenY = (depthM, view) => {
+  const depthFraction = 1 - Math.exp((-depthM / view.maxDepth) * 1.9);
+  const groundStartY = clamp(view.horizonY + 6, 0, view.height - 12);
+  return clamp(groundStartY + depthFraction * (view.height - groundStartY), groundStartY + 6, view.height - 3);
+};
+
+const drawBearingTicks = (view) => {
   ctx.save();
-  ctx.strokeStyle = 'rgba(226,232,240,0.34)';
+  ctx.strokeStyle = 'rgba(226,232,240,0.55)';
+  ctx.fillStyle = 'rgba(226,232,240,0.9)';
   ctx.lineWidth = 1;
-  ctx.setLineDash([4, 6]);
-  ctx.beginPath();
-  ctx.moveTo(10, guideY);
-  ctx.lineTo(width - 10, guideY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.fillStyle = 'rgba(241,245,249,0.88)';
   ctx.font = '600 11px Inter, sans-serif';
-  segments.forEach((fraction, index) => {
-    const x = 12 + (width - 24) * fraction;
-    const distanceM = Math.round(view.visibleDistanceM * fraction);
-    ctx.fillRect(x - 0.5, guideY - 4, 1, 8);
-    if (index % 2 === 0 || index === segments.length - 1) {
-      ctx.fillText(`${distanceM}m`, x - 12, guideY - 7);
+
+  for (let bearing = 0; bearing < 360; bearing += 15) {
+    const x = worldBearingToScreenX(bearing, view);
+    if (x < -20 || x > view.width + 20) {
+      continue;
     }
-  });
-  ctx.fillText('distance from viewport', 14, guideY + 14);
+    const major = bearing % 45 === 0;
+    const tickTop = major ? 0 : 8;
+
+    ctx.beginPath();
+    ctx.moveTo(x, tickTop);
+    ctx.lineTo(x, 20);
+    ctx.stroke();
+
+    if (major) {
+      const label = bearing === 0 ? 'N' : bearing === 90 ? 'E' : bearing === 180 ? 'S' : bearing === 270 ? 'W' : `${bearing}°`;
+      ctx.fillText(label, x - 8, 34);
+    }
+  }
+
   ctx.restore();
 };
 
-const createGroundMask = (width, height, horizonY, headingDeg) => {
-  const undulation = 14;
-  const wave = headingDeg / 57;
+const drawLayerVolume = (layer, view) => {
+  const topY = depthToScreenY(layer.topDepthM, view);
+  const bottomY = depthToScreenY(layer.bottomDepthM, view);
 
+  ctx.fillStyle = `${layer.color}cc`;
+  ctx.fillRect(0, topY, view.width, bottomY - topY);
+
+  const rollSkew = clamp(state.rollDeg * 1.2, -24, 24);
+  ctx.fillStyle = `${layer.color}66`;
   ctx.beginPath();
-  ctx.moveTo(0, horizonY + Math.sin(wave) * undulation);
-  for (let x = 0; x <= width; x += Math.max(16, width / 30)) {
-    const wobble = Math.sin((x / width) * Math.PI * 2.8 + wave) * undulation;
-    const contour = Math.cos((x / width) * Math.PI * 4.1 + wave * 1.2) * (undulation * 0.42);
-    ctx.lineTo(x, horizonY + wobble + contour);
+  ctx.moveTo(0, topY);
+  ctx.lineTo(view.width, topY + rollSkew);
+  ctx.lineTo(view.width, bottomY + rollSkew);
+  ctx.lineTo(0, bottomY);
+  ctx.closePath();
+  ctx.fill();
+
+  if (bottomY - topY > 24) {
+    ctx.fillStyle = 'rgba(248,250,252,0.95)';
+    ctx.font = '600 12px Inter, sans-serif';
+    ctx.fillText(`${layer.name} · ${Math.round(layer.topDepthM)}-${Math.round(layer.bottomDepthM)}m`, 12, (topY + bottomY) / 2);
   }
-  ctx.lineTo(width, height);
-  ctx.lineTo(0, height);
-  ctx.closePath();
-};
-
-const drawVolumetricSlice = (layer, width, topY, bottomY, waveOffset, perspectiveSkew) => {
-  const lift = 7 + layer.index * 1.8;
-  const sideDepthPx = 12 + layer.index * 1.3;
-  const xQuarter = width * 0.25;
-  const xMid = width * 0.5;
-  const xThreeQuarter = width * 0.75;
-
-  const topShift = Math.sin(waveOffset) * lift;
-  const topShiftMid = Math.sin(waveOffset + 2.1) * lift;
-  const topShiftRight = Math.sin(waveOffset + 4.4) * lift;
-
-  ctx.beginPath();
-  ctx.moveTo(0, topY + topShift);
-  ctx.quadraticCurveTo(xQuarter, topY + Math.sin(waveOffset + 1.1) * lift, xMid, topY + topShiftMid);
-  ctx.quadraticCurveTo(xThreeQuarter, topY + Math.sin(waveOffset + 3.2) * lift, width, topY + topShiftRight);
-  ctx.lineTo(width, bottomY + topShiftRight * 0.35);
-  ctx.quadraticCurveTo(
-    xThreeQuarter,
-    bottomY + Math.sin(waveOffset + 3.2) * (lift * 0.45),
-    xMid,
-    bottomY + topShiftMid * 0.35,
-  );
-  ctx.quadraticCurveTo(
-    xQuarter,
-    bottomY + Math.sin(waveOffset + 1.1) * (lift * 0.45),
-    0,
-    bottomY + topShift * 0.35,
-  );
-  ctx.closePath();
-
-  ctx.fillStyle = `${layer.color}88`;
-  ctx.fill();
-  ctx.strokeStyle = `${layer.color}f5`;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(width, topY + topShiftRight);
-  ctx.lineTo(width + perspectiveSkew, topY + topShiftRight + sideDepthPx);
-  ctx.lineTo(width + perspectiveSkew, bottomY + topShiftRight * 0.35 + sideDepthPx);
-  ctx.lineTo(width, bottomY + topShiftRight * 0.35);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(15,23,42,0.28)';
-  ctx.fill();
 };
 
 const drawOverlay = (layers) => {
   const width = el.canvas.clientWidth;
   const height = el.canvas.clientHeight;
+  const view = calculateViewModel(layers, width, height);
+
+  state.groundVisibility = view.groundVisibility;
   ctx.clearRect(0, 0, width, height);
 
-  const view = calculateViewModel(layers, width, height);
-  state.groundVisibility = view.groundVisibility;
-  const perspectiveSkew = clamp((state.heading - 180) * 0.09, -24, 24);
-  const lookingSky = view.groundVisibility <= 0.02;
+  drawBearingTicks(view);
 
-  if (!lookingSky) {
-    ctx.fillStyle = `rgba(14, 165, 233, ${0.05 + view.groundVisibility * 0.05})`;
-    ctx.fillRect(0, 0, width, Math.max(0, view.horizonY));
+  if (view.lookingSky) {
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.58)';
+    ctx.fillRect(12, height - 76, Math.min(width - 24, 570), 62);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '600 13px Inter, sans-serif';
+    ctx.fillText('Sky view detected: no geologic intersection ahead.', 22, height - 48);
+    ctx.fillText('Tilt the phone downward to intersect terrain and render layers.', 22, height - 28);
+    return;
   }
 
-  if (!lookingSky) {
-    ctx.fillStyle = `rgba(148, 163, 184, ${0.08 + view.groundVisibility * 0.18})`;
-    createGroundMask(width, height, view.horizonY, state.heading);
-    ctx.fill();
-  }
+  ctx.fillStyle = 'rgba(148,163,184,0.18)';
+  ctx.fillRect(0, view.horizonY, width, height - view.horizonY);
 
-  if (!lookingSky) {
-    ctx.save();
-    createGroundMask(width, height, view.horizonY, state.heading);
-    ctx.clip();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, view.horizonY, width, height - view.horizonY);
+  ctx.clip();
+  layers.forEach((layer) => drawLayerVolume(layer, view));
+  ctx.restore();
 
-    layers.forEach((layer) => {
-      const topY = depthToScreenY(layer.topDepthM, view.groundStartY, height, view.depthScaleMax);
-      const bottomY = depthToScreenY(layer.bottomDepthM, view.groundStartY, height, view.depthScaleMax);
-      const waveOffset = state.heading / 60 + layer.index * 0.48;
-
-      drawVolumetricSlice(layer, width, topY, bottomY, waveOffset, perspectiveSkew);
-
-      if (bottomY - topY > 24) {
-        ctx.fillStyle = 'rgba(248,250,252,0.95)';
-        ctx.font = '600 12px Inter, sans-serif';
-        ctx.fillText(
-          `${layer.name} · ${layer.age} · ${(layer.porosity * 100).toFixed(0)}% φ`,
-          12,
-          (topY + bottomY) / 2,
-        );
-      }
-    });
-
-    ctx.restore();
-  }
-
-  if (!lookingSky) {
-    ctx.strokeStyle = 'rgba(148,163,184,0.85)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, view.horizonY);
-    ctx.lineTo(width, view.horizonY);
-    ctx.stroke();
-    drawDepthGuide(width, height, view);
-  }
+  ctx.strokeStyle = 'rgba(148,163,184,0.8)';
+  ctx.beginPath();
+  ctx.moveTo(0, view.horizonY);
+  ctx.lineTo(width, view.horizonY);
+  ctx.stroke();
 
   ctx.strokeStyle = 'rgba(226,232,240,0.45)';
   ctx.setLineDash([5, 7]);
@@ -311,22 +272,15 @@ const drawOverlay = (layers) => {
   ctx.setLineDash([]);
 
   ctx.fillStyle = 'rgba(2, 6, 23, 0.62)';
-  ctx.fillRect(12, height - 72, Math.min(width - 24, 480), 58);
+  ctx.fillRect(12, height - 76, Math.min(width - 24, 620), 62);
   ctx.fillStyle = '#e2e8f0';
   ctx.font = '600 13px Inter, sans-serif';
   ctx.fillText(
-    lookingSky
-      ? `Sky view detected · Geological volume hidden`
-      : `3D ground volume · Bearing ${Math.round(state.heading)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km`,
+    `Ground intersected · Bearing ${Math.round(state.heading)}° · Pitch ${Math.round(state.pitchDeg)}° · Look-ahead ${(view.visibleDistanceM / 1000).toFixed(1)} km`,
     22,
-    height - 46,
+    height - 48,
   );
-
-  const locationText =
-    state.lat !== null && state.lon !== null
-      ? `Lat ${state.lat.toFixed(5)}, Lon ${state.lon.toFixed(5)} · Eye ${Math.round(state.observerHeightM)}m`
-      : `No GPS fix yet · Eye ${Math.round(state.observerHeightM)}m`;
-  ctx.fillText(locationText, 22, height - 26);
+  ctx.fillText(`Roll ${Math.round(state.rollDeg)}° · Eye ${Math.round(state.observerHeightM)}m`, 22, height - 28);
 };
 
 const renderLegend = (layers) => {
@@ -335,23 +289,21 @@ const renderLegend = (layers) => {
     const chip = document.createElement('span');
     chip.className = 'legend-chip';
     chip.style.background = `${layer.color}36`;
-    chip.style.borderColor = `${layer.color}b4`;
+    chip.style.borderColor = `${layer.color}aa`;
     chip.textContent = `${layer.name} (${Math.round(layer.topDepthM)}-${Math.round(layer.bottomDepthM)}m)`;
     el.legend.append(chip);
   });
 };
 
 const renderInsight = (layers) => {
-  const horizonKm = (3.57 * Math.sqrt(Math.max(1, state.observerHeightM))).toFixed(1);
-  const dominant = layers.reduce((prev, curr) => (curr.thicknessM > prev.thicknessM ? curr : prev), layers[0]);
-  const confidence = Math.round((layers.reduce((sum, layer) => sum + layer.confidence, 0) / layers.length) * 100);
+  const deepest = layers[layers.length - 1].bottomDepthM;
+  const accuracy = state.locationAccuracyM ? `GPS ±${Math.round(state.locationAccuracyM)}m` : 'GPS unavailable';
+  const mode = state.source === 'sensor' ? 'Sensor-locked heading/pitch' : 'Manual heading';
 
   el.insightText.textContent =
-    state.groundVisibility < 0.05
-      ? 'Camera tilt indicates skyward view, so the geological overlay is hidden until ground re-enters the viewport.'
-      : `3D ground volume is projected from the local surface downward with age-banded slices and depth cues. ` +
-        `Dominant unit is ${dominant.name}; estimated confidence ${confidence}%. ` +
-        `At ${Math.round(state.observerHeightM)}m eye height, geometric horizon is ~${horizonKm} km.`;
+    state.groundVisibility < 0.04
+      ? `${mode}. Sky is in view, so no geological intersection is drawn.`
+      : `${mode}. Overlay is earth-frame aligned using heading, pitch, and roll. ${accuracy}. Depth model currently synthetic (max ~${Math.round(deepest)}m) and ready for real map units.`;
 };
 
 const refresh = () => {
@@ -364,23 +316,23 @@ const refresh = () => {
 const syncSliders = () => {
   el.headingInput.value = String(Math.round(state.heading));
   el.distanceInput.value = String(state.distanceKm);
-  el.tiltInput.value = String(state.tiltDeg);
+  el.tiltInput.value = String(Math.round(state.pitchDeg));
   el.elevationInput.value = String(Math.round(state.observerHeightM));
 };
 
 const setHeading = (value, source = 'manual') => {
-  state.heading = clampHeading(value);
+  const next = clampHeading(value);
+  state.heading = source === 'sensor' ? smoothAngle(state.heading, next) : next;
   state.source = source;
-  el.headingStatus.textContent =
-    source === 'sensor' ? `${Math.round(state.heading)}° live` : `${Math.round(state.heading)}° manual`;
+  el.headingStatus.textContent = source === 'sensor' ? `${Math.round(state.heading)}° live` : `${Math.round(state.heading)}° manual`;
   syncSliders();
   refresh();
 };
 
-const setTiltFromSensor = (rawTilt) => {
-  state.tiltDeg = clamp(Math.round(rawTilt), -20, 80);
-  state.distanceKm = Number((0.8 + ((80 - clamp(state.tiltDeg, 0, 80)) / 80) * 9.2).toFixed(1));
-  syncSliders();
+const setPitch = (value, source = 'manual') => {
+  const next = clamp(value, -45, 80);
+  state.pitchDeg = source === 'sensor' ? clamp(state.pitchDeg * 0.8 + next * 0.2, -45, 80) : next;
+  el.tiltInput.value = String(Math.round(state.pitchDeg));
   refresh();
 };
 
@@ -433,22 +385,21 @@ const startCamera = async () => {
   }
 
   if (state.stream) {
-    showCenterHint('AR view is already active.', { autoHideMs: 3000 });
+    showCenterHint('AR view already active.', { autoHideMs: 2200 });
     return true;
   }
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-      },
+      video: { facingMode: { ideal: 'environment' } },
       audio: false,
     });
+
     state.stream = stream;
     el.cameraFeed.srcObject = stream;
     await el.cameraFeed.play();
     el.cameraFeed.classList.add('active');
-    showCenterHint('AR view active. Subsurface volume remains visible indoors.', { autoHideMs: 3000 });
+    showCenterHint('AR camera live. Point at terrain to intersect geologic layers.', { autoHideMs: 3500 });
     el.startArBtn.textContent = 'AR view active';
     el.startArBtn.disabled = true;
     return true;
@@ -464,12 +415,18 @@ const enableLocation = () => {
     return;
   }
 
+  if (state.locationWatchId !== null) {
+    return;
+  }
+
   el.locationStatus.textContent = 'Finding...';
-  navigator.geolocation.getCurrentPosition(
+  state.locationWatchId = navigator.geolocation.watchPosition(
     (position) => {
       state.lat = position.coords.latitude;
       state.lon = position.coords.longitude;
-      el.locationStatus.textContent = `${state.lat.toFixed(4)}, ${state.lon.toFixed(4)}`;
+      state.altitudeM = position.coords.altitude;
+      state.locationAccuracyM = position.coords.accuracy;
+      el.locationStatus.textContent = `${state.lat.toFixed(4)}, ${state.lon.toFixed(4)} (±${Math.round(position.coords.accuracy)}m)`;
       refresh();
     },
     () => {
@@ -477,6 +434,7 @@ const enableLocation = () => {
     },
     {
       enableHighAccuracy: true,
+      maximumAge: 2000,
       timeout: 10000,
     },
   );
@@ -487,41 +445,38 @@ const setupOrientation = async () => {
     return;
   }
 
-  const isIOS =
-    typeof DeviceOrientationEvent !== 'undefined' &&
-    typeof DeviceOrientationEvent.requestPermission === 'function';
-
+  const isIOS = typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function';
   if (isIOS) {
-    const result = await DeviceOrientationEvent.requestPermission();
-    if (result !== 'granted') {
+    const permission = await DeviceOrientationEvent.requestPermission();
+    if (permission !== 'granted') {
       el.headingStatus.textContent = 'Permission denied';
       return;
     }
   }
 
-  window.addEventListener('deviceorientation', (event) => {
+  const listener = (event) => {
     if (typeof event.alpha === 'number') {
-      const heading = event.webkitCompassHeading ?? 360 - event.alpha;
-      setHeading(heading, 'sensor');
+      const magneticHeading = event.webkitCompassHeading ?? 360 - event.alpha;
+      setHeading(magneticHeading, 'sensor');
     }
 
-    const sensorTilt = getTiltFromDeviceOrientation(event);
-    if (sensorTilt !== null) {
-      setTiltFromSensor(clamp(sensorTilt, -20, 80));
+    const pitch = normalizePitch(event);
+    if (pitch !== null) {
+      setPitch(pitch, 'sensor');
     }
-  });
 
+    state.rollDeg = clamp(state.rollDeg * 0.75 + normalizeRoll(event) * 0.25, -45, 45);
+  };
+
+  window.addEventListener('deviceorientationabsolute', listener, true);
+  window.addEventListener('deviceorientation', listener, true);
   state.orientationActive = true;
-  el.headingStatus.textContent = 'Waiting for sensor...';
+  el.headingStatus.textContent = 'Sensor active';
+  showCenterHint('Compass + tilt lock enabled.', { autoHideMs: 2500 });
 };
 
-el.menuBtn.addEventListener('click', () => {
-  setMenuOpen(el.settingsPanel.hasAttribute('hidden'));
-});
-
-el.closeMenuBtn.addEventListener('click', () => {
-  setMenuOpen(false);
-});
+el.menuBtn.addEventListener('click', () => setMenuOpen(el.settingsPanel.hasAttribute('hidden')));
+el.closeMenuBtn.addEventListener('click', () => setMenuOpen(false));
 
 el.startArBtn.addEventListener('click', async () => {
   const started = await startCamera();
@@ -535,33 +490,20 @@ el.startArBtn.addEventListener('click', async () => {
   enableLocation();
 });
 
-el.locationBtn.addEventListener('click', () => {
-  enableLocation();
-});
-
+el.locationBtn.addEventListener('click', enableLocation);
 el.orientationBtn.addEventListener('click', () => {
   setupOrientation().catch((error) => {
     el.headingStatus.textContent = `Compass unavailable (${error.message})`;
   });
 });
 
-el.headingInput.addEventListener('input', (event) => {
-  setHeading(Number(event.target.value), 'manual');
-});
-
+el.headingInput.addEventListener('input', (event) => setHeading(Number(event.target.value), 'manual'));
 el.distanceInput.addEventListener('input', (event) => {
   state.distanceKm = Number(event.target.value);
   refresh();
 });
-
-el.tiltInput.addEventListener('input', (event) => {
-  state.tiltDeg = Number(event.target.value);
-  refresh();
-});
-
-el.elevationInput.addEventListener('input', (event) => {
-  setObserverHeight(Number(event.target.value));
-});
+el.tiltInput.addEventListener('input', (event) => setPitch(Number(event.target.value), 'manual'));
+el.elevationInput.addEventListener('input', (event) => setObserverHeight(Number(event.target.value)));
 
 window.addEventListener('resize', () => {
   fitCanvas();
@@ -569,8 +511,8 @@ window.addEventListener('resize', () => {
 });
 
 fitCanvas();
-el.modeStatus.textContent = '3D subsurface';
+el.modeStatus.textContent = 'Earth-frame AR';
 setObserverHeight(state.observerHeightM);
 syncSliders();
 refresh();
-showCenterHint('Move your phone slowly to stabilize the overlay.');
+showCenterHint('Point toward ground to see geological layers aligned to your view.');
