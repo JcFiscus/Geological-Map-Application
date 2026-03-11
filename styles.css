@@ -155,6 +155,16 @@ body {
   color: #cbd5e1;
 }
 
+.insight {
+  font-size: 0.8rem;
+  color: #dbeafe;
+  line-height: 1.35;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
 .control-row {
   display: flex;
   gap: 0.45rem;
